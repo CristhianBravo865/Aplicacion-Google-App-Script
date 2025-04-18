@@ -44,22 +44,59 @@ const RECETAS = {
 };
 
 function onFormSubmit(e) {
-  const [timestamp, prefDesayuno, prefAlmuerzo, prefCena] = e.values;
-  const hoja = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
-  const fila = hoja.getLastRow();
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let dashboard = ss.getSheetByName("Dashboard");
 
+  // Crear el dashboard si no existe
+  if (!dashboard) {
+    dashboard = ss.insertSheet("Dashboard");
+  }
+
+  // Limpiar el dashboard
+  dashboard.clear();
+
+  // Títulos principales
+  dashboard.getRange("A1").setValue("Panel de Recetas").setFontSize(16).setFontWeight("bold");
+  dashboard.getRange("A3").setValue("Preferencias").setFontSize(12).setFontWeight("bold");
+
+  // Preferencias del usuario
+  const [timestamp, prefDesayuno, prefAlmuerzo, prefCena] = e.values;
+  dashboard.getRange("A4").setValue("Desayuno").setFontWeight("bold");
+  dashboard.getRange("B4").setValue(prefDesayuno);
+
+  dashboard.getRange("A5").setValue("Almuerzo").setFontWeight("bold");
+  dashboard.getRange("B5").setValue(prefAlmuerzo);
+
+  dashboard.getRange("A6").setValue("Cena").setFontWeight("bold");
+  dashboard.getRange("B6").setValue(prefCena);
+
+  // Títulos para resultados
+  dashboard.getRange("A8").setValue("Resultados").setFontSize(12).setFontWeight("bold");
+  dashboard.getRange("A9").setValue("Tipo de Comida");
+  dashboard.getRange("B9").setValue("Nombre de la Receta");
+  dashboard.getRange("C9").setValue("Ingredientes");
+  dashboard.getRange("D9").setValue("Preparación");
+
+  dashboard.getRange("A9:D9").setFontWeight("bold").setBackground("#f4f4f4");
+
+  // Obtener recetas
   const recetas = {
     desayuno: elegirReceta(prefDesayuno, "desayuno"),
     almuerzo: elegirReceta(prefAlmuerzo, "almuerzo"),
     cena: elegirReceta(prefCena, "cena")
   };
 
-  Object.entries(recetas).forEach(([tipo, receta], i) => {
-    const baseColumna = 5 + i * 3;
-    hoja.getRange(fila, baseColumna).setValue(receta.nombre);
-    hoja.getRange(fila, baseColumna + 1).setValue(receta.ingredientes);
-    hoja.getRange(fila, baseColumna + 2).setValue(receta.preparacion);
+  // Mostrar resultados en el dashboard
+  const tipos = ["Desayuno", "Almuerzo", "Cena"];
+  Object.entries(recetas).forEach(([tipo, receta], index) => {
+    const row = 10 + index;
+    dashboard.getRange(row, 1).setValue(tipos[index]);
+    dashboard.getRange(row, 2).setValue(receta.nombre);
+    dashboard.getRange(row, 3).setValue(receta.ingredientes);
+    dashboard.getRange(row, 4).setValue(receta.preparacion);
   });
+
+  SpreadsheetApp.getUi().alert("Las recetas han sido actualizadas en el Panel");
 }
 
 function elegirReceta(preferencias, tipoComida) {
