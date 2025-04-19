@@ -54,45 +54,30 @@ const RECETAS = {
     }
   ]
 };
-function elegirReceta(preferencias, tipoComida) {
-  const preferenciasUsuario = preferencias.toLowerCase().split(",").map(p => p.trim());
-  const recetas = RECETAS[tipoComida];
 
-  const recetaElegida = recetas.reduce(
-    (mejor, receta) => {
-      const coincidencias = receta.etiquetas.filter(et => preferenciasUsuario.includes(et)).length;
-      return coincidencias > mejor.coincidencias ? { receta, coincidencias } : mejor;
-    },
-    { receta: null, coincidencias: 0 }
-  ).receta;
+function obtenerRecetasDesdeSpoonacular(ingredientes, dieta = "") {
+  const apiKey = 'afb7a30a34584ad2b42b3ae71f3aa9b9'; 
+  const url = `https://api.spoonacular.com/recipes/complexSearch?query=${encodeURIComponent(ingredientes)}&diet=${encodeURIComponent(dieta)}&apiKey=${apiKey}`;
 
-  return recetaElegida || {
-    nombre: "No se encontró una receta",
-    ingredientes: "Intenta con preferencias diferentes.",
-    preparacion: "No hay coincidencias con tus preferencias.",
-    calorias: "",
-    imagen: ""
-  };
+  try {
+    const respuesta = UrlFetchApp.fetch(url);
+    const datos = JSON.parse(respuesta.getContentText());
+
+    return datos.results.map(hit => {
+      return {
+        nombre: hit.title,
+        ingredientes: hit.ingredients.join(', '),
+        preparacion: hit.sourceUrl,
+        calorias: hit.calories,  
+        imagen: hit.image
+      };
+    });
+  } catch (error) {
+    console.error("Error al obtener recetas desde Spoonacular:", error.message);
+    return [];
+  }
 }
-function obtenerRecetasDesdeEdamam(ingredientes) {
-  const appId = 'TU_APP_ID'; 
-  const appKey = '51e83c52d87e41fc92bf314bb7a13b3c'; 
-  const url = `https://api.edamam.com/search?q=${encodeURIComponent(ingredientes)}&app_id=${appId}&app_key=${appKey}&to=5&locale=es`;
 
-  const respuesta = UrlFetchApp.fetch(url);
-  const datos = JSON.parse(respuesta.getContentText());
-
-  return datos.hits.map(hit => {
-    const receta = hit.recipe;
-    return {
-      nombre: receta.label,
-      ingredientes: receta.ingredientLines.join(', '),
-      preparacion: receta.url,
-      calorias: Math.round(receta.calories),
-      imagen: receta.image
-    };
-  });
-}
 function onFormSubmit(e) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   let dashboard = ss.getSheetByName("Dashboard");
@@ -105,7 +90,7 @@ function onFormSubmit(e) {
 
   dashboard.getRange("A1").setValue("Planificador Semanal de Comidas").setFontSize(16).setFontWeight("bold");
 
-  const [timestamp, prefDesayuno, prefAlmuerzo, prefCena, ingredientes] = e.values;
+  const [timestamp, prefDesayuno, prefAlmuerzo, prefCena, ingredientes, dieta] = e.values;
 
   const dias = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"];
   const tiposComida = ["Desayuno", "Almuerzo", "Cena"];
@@ -114,6 +99,7 @@ function onFormSubmit(e) {
     almuerzo: prefAlmuerzo,
     cena: prefCena
   };
+
   dashboard.getRange("A3").setValue("Día");
   dashboard.getRange("B3").setValue("Tipo de comida");
   dashboard.getRange("C3").setValue("Receta");
@@ -140,11 +126,12 @@ function onFormSubmit(e) {
       row++;
     });
   });
-  if (ingredientes) {
-    const recetasEdamam = obtenerRecetasDesdeEdamam(ingredientes);
-    dashboard.getRange(row + 1, 1).setValue("🔍 Recetas desde Edamam").setFontWeight("bold");
+
+  if (ingredientes || dieta) {
+    const recetasSpoonacular = obtenerRecetasDesdeSpoonacular(ingredientes, dieta);
+    dashboard.getRange(row + 1, 1).setValue("🔍 Recetas desde Spoonacular").setFontWeight("bold");
     row += 2;
-    recetasEdamam.forEach((receta, index) => {
+    recetasSpoonacular.forEach((receta, index) => {
       dashboard.getRange(row, 1).setValue(`Recomendación ${index + 1}`);
       dashboard.getRange(row, 2).setValue("Online");
       dashboard.getRange(row, 3).setValue(receta.nombre);
