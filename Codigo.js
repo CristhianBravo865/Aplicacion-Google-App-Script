@@ -55,27 +55,67 @@ const RECETAS = {
   ]
 };
 
-function obtenerRecetasDesdeSpoonacular(ingredientes, dieta = "") {
-  const apiKey = 'afb7a30a34584ad2b42b3ae71f3aa9b9'; 
-  const url = `https://api.spoonacular.com/recipes/complexSearch?query=${encodeURIComponent(ingredientes)}&diet=${encodeURIComponent(dieta)}&apiKey=${apiKey}`;
+function obtenerRecetasDesdeSpoonacular(query, dieta = "") {
+  const apiKey = 'afb7a30a34584ad2b42b3ae71f3aa9b9';
+  const baseUrl = 'https://api.spoonacular.com/recipes/complexSearch';
+  const url = `${baseUrl}?query=${encodeURIComponent(query)}&diet=${encodeURIComponent(dieta)}&number=1&apiKey=${apiKey}`;
 
   try {
     const respuesta = UrlFetchApp.fetch(url);
     const datos = JSON.parse(respuesta.getContentText());
 
-    return datos.results.map(hit => {
-      return {
-        nombre: hit.title,
-        ingredientes: hit.ingredients.join(', '),
-        preparacion: hit.sourceUrl,
-        calorias: hit.calories,  
-        imagen: hit.image
-      };
-    });
+    if (!datos.results || datos.results.length === 0) return [];
+
+    const recetaBase = datos.results[0];
+    const recetaId = recetaBase.id;
+
+    // Segunda llamada para obtener detalles
+    const detalleUrl = `https://api.spoonacular.com/recipes/${recetaId}/information?includeNutrition=true&apiKey=${apiKey}`;
+    const detalleResp = UrlFetchApp.fetch(detalleUrl);
+    const detalle = JSON.parse(detalleResp.getContentText());
+
+    const ingredientes = detalle.extendedIngredients.map(i => i.original).join(', ');
+    const calorias = detalle.nutrition?.nutrients?.find(n => n.name === "Calories")?.amount || "No disponible";
+
+    return [{
+      nombre: detalle.title,
+      ingredientes: ingredientes,
+      preparacion: detalle.sourceUrl, // Es un link a la receta
+      calorias: calorias,
+      imagen: detalle.image
+    }];
   } catch (error) {
-    console.error("Error al obtener recetas desde Spoonacular:", error.message);
+    Logger.log("Error con la API de Spoonacular: " + error);
     return [];
   }
+}
+
+
+function elegirReceta(preferencias, tipoComida, dieta = "") {
+  const preferenciasUsuario = preferencias.toLowerCase().split(",").map(p => p.trim());
+  const recetas = RECETAS[tipoComida];
+
+  const recetaElegida = recetas.reduce(
+    (mejor, receta) => {
+      const coincidencias = receta.etiquetas.filter(et => preferenciasUsuario.includes(et)).length;
+      return coincidencias > mejor.coincidencias ? { receta, coincidencias } : mejor;
+    },
+    { receta: null, coincidencias: 0 }
+  ).receta;
+
+  if (recetaElegida) return recetaElegida;
+
+  // 🚀 Si no encontró nada local, busca en Spoonacular
+  const alternativas = obtenerRecetasDesdeSpoonacular(preferencias, dieta);
+  if (alternativas.length > 0) return alternativas[0];
+
+  return {
+    nombre: "No se encontró una receta",
+    ingredientes: "Intenta con preferencias diferentes.",
+    preparacion: "No hay coincidencias con tus preferencias.",
+    calorias: "",
+    imagen: ""
+  };
 }
 
 function onFormSubmit(e) {
@@ -113,7 +153,7 @@ function onFormSubmit(e) {
   let row = 4;
   dias.forEach(dia => {
     tiposComida.forEach(tipo => {
-      const receta = elegirReceta(preferencias[tipo.toLowerCase()], tipo.toLowerCase());
+      const receta = elegirReceta(preferencias[tipo.toLowerCase()], tipo.toLowerCase(), dieta);
 
       dashboard.getRange(row, 1).setValue(dia);
       dashboard.getRange(row, 2).setValue(tipo);
@@ -121,27 +161,11 @@ function onFormSubmit(e) {
       dashboard.getRange(row, 4).setValue(receta.ingredientes);
       dashboard.getRange(row, 5).setValue(receta.preparacion);
       dashboard.getRange(row, 6).setValue(receta.calorias);
-      dashboard.getRange(row, 7).setValue(receta.imagen);
+      dashboard.getRange(row, 7).setFormula(`=IMAGE("${receta.imagen}")`);
 
       row++;
     });
   });
-
-  if (ingredientes || dieta) {
-    const recetasSpoonacular = obtenerRecetasDesdeSpoonacular(ingredientes, dieta);
-    dashboard.getRange(row + 1, 1).setValue("🔍 Recetas desde Spoonacular").setFontWeight("bold");
-    row += 2;
-    recetasSpoonacular.forEach((receta, index) => {
-      dashboard.getRange(row, 1).setValue(`Recomendación ${index + 1}`);
-      dashboard.getRange(row, 2).setValue("Online");
-      dashboard.getRange(row, 3).setValue(receta.nombre);
-      dashboard.getRange(row, 4).setValue(receta.ingredientes);
-      dashboard.getRange(row, 5).setValue(receta.preparacion);
-      dashboard.getRange(row, 6).setValue(receta.calorias);
-      dashboard.getRange(row, 7).setValue(receta.imagen);
-      row++;
-    });
-  }
 
   SpreadsheetApp.getUi().alert("✅ Planificador semanal generado correctamente.");
 }
