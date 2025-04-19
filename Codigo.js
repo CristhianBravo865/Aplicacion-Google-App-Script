@@ -55,13 +55,25 @@ const RECETAS = {
   ]
 };
 
+function traducirTexto(texto, idiomaOrigen = 'es', idiomaDestino = 'en') {
+  return LanguageApp.translate(texto, idiomaOrigen, idiomaDestino);
+}
+
 function obtenerRecetasDesdeSpoonacular(query, dieta = "") {
-  const apiKey = 'afb7a30a34584ad2b42b3ae71f3aa9b9';
+  const queryTraducido = traducirTexto(query); // Traduce a inglés
+  const apiKey = '92a4f016fcea46bfb73cb134375682c0';
   const baseUrl = 'https://api.spoonacular.com/recipes/complexSearch';
-  const url = `${baseUrl}?query=${encodeURIComponent(query)}&diet=${encodeURIComponent(dieta)}&number=1&apiKey=${apiKey}`;
+  const url = `${baseUrl}?query=${encodeURIComponent(queryTraducido)}&diet=${encodeURIComponent(dieta)}&number=1&apiKey=${apiKey}`;
 
   try {
-    const respuesta = UrlFetchApp.fetch(url);
+    const respuesta = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
+    const codigo = respuesta.getResponseCode();
+
+    if (codigo !== 200) {
+      Logger.log(`Error al buscar receta: Código ${codigo} - ${respuesta.getContentText()}`);
+      return [];
+    }
+
     const datos = JSON.parse(respuesta.getContentText());
 
     if (!datos.results || datos.results.length === 0) return [];
@@ -69,9 +81,15 @@ function obtenerRecetasDesdeSpoonacular(query, dieta = "") {
     const recetaBase = datos.results[0];
     const recetaId = recetaBase.id;
 
-    // Segunda llamada para obtener detalles
     const detalleUrl = `https://api.spoonacular.com/recipes/${recetaId}/information?includeNutrition=true&apiKey=${apiKey}`;
-    const detalleResp = UrlFetchApp.fetch(detalleUrl);
+    const detalleResp = UrlFetchApp.fetch(detalleUrl, { muteHttpExceptions: true });
+    const codigoDetalle = detalleResp.getResponseCode();
+
+    if (codigoDetalle !== 200) {
+      Logger.log(`Error al obtener detalles de receta: Código ${codigoDetalle} - ${detalleResp.getContentText()}`);
+      return [];
+    }
+
     const detalle = JSON.parse(detalleResp.getContentText());
 
     const ingredientes = detalle.extendedIngredients.map(i => i.original).join(', ');
@@ -80,12 +98,12 @@ function obtenerRecetasDesdeSpoonacular(query, dieta = "") {
     return [{
       nombre: detalle.title,
       ingredientes: ingredientes,
-      preparacion: detalle.sourceUrl, // Es un link a la receta
+      preparacion: detalle.sourceUrl,
       calorias: calorias,
       imagen: detalle.image
     }];
   } catch (error) {
-    Logger.log("Error con la API de Spoonacular: " + error);
+    Logger.log("⚠️ Excepción inesperada al usar la API de Spoonacular: " + error);
     return [];
   }
 }
@@ -105,7 +123,6 @@ function elegirReceta(preferencias, tipoComida, dieta = "") {
 
   if (recetaElegida) return recetaElegida;
 
-  // 🚀 Si no encontró nada local, busca en Spoonacular
   const alternativas = obtenerRecetasDesdeSpoonacular(preferencias, dieta);
   if (alternativas.length > 0) return alternativas[0];
 
