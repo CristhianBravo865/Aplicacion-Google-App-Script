@@ -59,11 +59,11 @@ function traducirTexto(texto, idiomaOrigen = 'es', idiomaDestino = 'en') {
   return LanguageApp.translate(texto, idiomaOrigen, idiomaDestino);
 }
 
-function obtenerRecetasDesdeSpoonacular(query, dieta = "") {
-  const queryTraducido = traducirTexto(query); // Traduce a inglés
+function obtenerRecetasDesdeSpoonacular(query, dieta = "", cantidad = 5) {
+  const queryTraducido = traducirTexto(query);
   const apiKey = '92a4f016fcea46bfb73cb134375682c0';
   const baseUrl = 'https://api.spoonacular.com/recipes/complexSearch';
-  const url = `${baseUrl}?query=${encodeURIComponent(queryTraducido)}&diet=${encodeURIComponent(dieta)}&number=1&apiKey=${apiKey}`;
+  const url = `${baseUrl}?query=${encodeURIComponent(queryTraducido)}&diet=${encodeURIComponent(dieta)}&number=${cantidad}&apiKey=${apiKey}`;
 
   try {
     const respuesta = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
@@ -75,34 +75,32 @@ function obtenerRecetasDesdeSpoonacular(query, dieta = "") {
     }
 
     const datos = JSON.parse(respuesta.getContentText());
-
     if (!datos.results || datos.results.length === 0) return [];
 
-    const recetaBase = datos.results[0];
-    const recetaId = recetaBase.id;
+    return datos.results.map(recetaBase => {
+      const recetaId = recetaBase.id;
+      const detalleUrl = `https://api.spoonacular.com/recipes/${recetaId}/information?includeNutrition=true&apiKey=${apiKey}`;
+      const detalleResp = UrlFetchApp.fetch(detalleUrl, { muteHttpExceptions: true });
+      const codigoDetalle = detalleResp.getResponseCode();
 
-    const detalleUrl = `https://api.spoonacular.com/recipes/${recetaId}/information?includeNutrition=true&apiKey=${apiKey}`;
-    const detalleResp = UrlFetchApp.fetch(detalleUrl, { muteHttpExceptions: true });
-    const codigoDetalle = detalleResp.getResponseCode();
+      if (codigoDetalle !== 200) {
+        Logger.log(`Error al obtener detalles de receta: Código ${codigoDetalle} - ${detalleResp.getContentText()}`);
+        return null;
+      }
 
-    if (codigoDetalle !== 200) {
-      Logger.log(`Error al obtener detalles de receta: Código ${codigoDetalle} - ${detalleResp.getContentText()}`);
-      return [];
-    }
+      const detalle = JSON.parse(detalleResp.getContentText());
+      const ingredientesOriginal = detalle.extendedIngredients.map(i => i.original).join(', ');
+      const calorias = detalle.nutrition?.nutrients?.find(n => n.name === "Calories")?.amount || "No disponible";
+      const resumen = detalle.summary || detalle.instructions || "Visita el enlace para más información";
 
-    const detalle = JSON.parse(detalleResp.getContentText());
-
-    const ingredientesOriginal = detalle.extendedIngredients.map(i => i.original).join(', ');
-    const calorias = detalle.nutrition?.nutrients?.find(n => n.name === "Calories")?.amount || "No disponible";
-    const resumen = detalle.summary || detalle.instructions || "Visita el enlace para más información";
-
-    return [{
-      nombre: traducirTexto(detalle.title, 'en', 'es'),
-      ingredientes: traducirTexto(ingredientesOriginal, 'en', 'es'),
-      preparacion: traducirTexto("Puedes ver la receta completa aquí: " + detalle.sourceUrl, 'en', 'es'),
-      calorias: calorias,
-      imagen: detalle.image
-    }];
+      return {
+        nombre: traducirTexto(detalle.title, 'en', 'es'),
+        ingredientes: traducirTexto(ingredientesOriginal, 'en', 'es'),
+        preparacion: traducirTexto("Puedes ver la receta completa aquí: " + detalle.sourceUrl, 'en', 'es'),
+        calorias: calorias,
+        imagen: detalle.image
+      };
+    }).filter(r => r !== null);
   } catch (error) {
     Logger.log("⚠️ Excepción inesperada al usar la API de Spoonacular: " + error);
     return [];
@@ -111,20 +109,13 @@ function obtenerRecetasDesdeSpoonacular(query, dieta = "") {
 
 function elegirReceta(preferencias, tipoComida, dieta = "") {
   const preferenciasUsuario = preferencias.toLowerCase().split(",").map(p => p.trim());
-  const recetas = RECETAS[tipoComida];
+  const queryAleatoria = preferenciasUsuario[Math.floor(Math.random() * preferenciasUsuario.length)];
+  const alternativas = obtenerRecetasDesdeSpoonacular(queryAleatoria, dieta, 5);
 
-  const recetaElegida = recetas.reduce(
-    (mejor, receta) => {
-      const coincidencias = receta.etiquetas.filter(et => preferenciasUsuario.includes(et)).length;
-      return coincidencias > mejor.coincidencias ? { receta, coincidencias } : mejor;
-    },
-    { receta: null, coincidencias: 0 }
-  ).receta;
-
-  if (recetaElegida) return recetaElegida;
-
-  const alternativas = obtenerRecetasDesdeSpoonacular(preferencias, dieta);
-  if (alternativas.length > 0) return alternativas[0];
+  if (alternativas.length > 0) {
+    const recetaAleatoria = alternativas[Math.floor(Math.random() * alternativas.length)];
+    return recetaAleatoria;
+  }
 
   return {
     nombre: "No se encontró una receta",
@@ -144,7 +135,6 @@ function onFormSubmit(e) {
   }
 
   dashboard.clear();
-
   dashboard.getRange("A1").setValue("Planificador Semanal de Comidas").setFontSize(16).setFontWeight("bold");
 
   const [timestamp, prefDesayuno, prefAlmuerzo, prefCena, ingredientes, dieta] = e.values;
@@ -168,6 +158,7 @@ function onFormSubmit(e) {
   dashboard.getRange("A3:G3").setFontWeight("bold").setBackground("#f4f4f4");
 
   let row = 4;
+
   dias.forEach(dia => {
     tiposComida.forEach(tipo => {
       const receta = elegirReceta(preferencias[tipo.toLowerCase()], tipo.toLowerCase(), dieta);
@@ -186,4 +177,3 @@ function onFormSubmit(e) {
 
   SpreadsheetApp.getUi().alert("✅ Planificador semanal generado correctamente.");
 }
-
