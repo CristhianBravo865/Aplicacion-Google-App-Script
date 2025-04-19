@@ -92,13 +92,14 @@ function obtenerRecetasDesdeSpoonacular(query, dieta = "") {
 
     const detalle = JSON.parse(detalleResp.getContentText());
 
-    const ingredientes = detalle.extendedIngredients.map(i => i.original).join(', ');
+    const ingredientesOriginal = detalle.extendedIngredients.map(i => i.original).join(', ');
     const calorias = detalle.nutrition?.nutrients?.find(n => n.name === "Calories")?.amount || "No disponible";
+    const resumen = detalle.summary || detalle.instructions || "Visita el enlace para más información";
 
     return [{
-      nombre: detalle.title,
-      ingredientes: ingredientes,
-      preparacion: detalle.sourceUrl,
+      nombre: traducirTexto(detalle.title, 'en', 'es'),
+      ingredientes: traducirTexto(ingredientesOriginal, 'en', 'es'),
+      preparacion: traducirTexto("Puedes ver la receta completa aquí: " + detalle.sourceUrl, 'en', 'es'),
       calorias: calorias,
       imagen: detalle.image
     }];
@@ -107,7 +108,6 @@ function obtenerRecetasDesdeSpoonacular(query, dieta = "") {
     return [];
   }
 }
-
 
 function elegirReceta(preferencias, tipoComida, dieta = "") {
   const preferenciasUsuario = preferencias.toLowerCase().split(",").map(p => p.trim());
@@ -186,3 +186,4 @@ function onFormSubmit(e) {
 
   SpreadsheetApp.getUi().alert("✅ Planificador semanal generado correctamente.");
 }
+
